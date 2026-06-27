@@ -37,17 +37,81 @@ public class NotificacaoGeralWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _connection = await _connectionFactory.CreateConnectionAsync(cancellationToken: stoppingToken);
-        _channel = await _connection.CreateChannelAsync(cancellationToken: stoppingToken);
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                _logger.LogInformation("Conectando ao RabbitMQ...");
+                _connection = await _connectionFactory.CreateConnectionAsync(cancellationToken: stoppingToken);
+                _channel = await _connection.CreateChannelAsync(cancellationToken: stoppingToken);
 
-        await ConfigurarTopologiaAsync();
+                await ConfigurarTopologiaAsync();
 
-        var consumer = new AsyncEventingBasicConsumer(_channel);
-        consumer.ReceivedAsync += OnMessageReceivedAsync;
+                var consumer = new AsyncEventingBasicConsumer(_channel);
+                consumer.ReceivedAsync += OnMessageReceivedAsync;
 
-        await _channel.BasicConsumeAsync(QueueName, autoAck: false, consumer: consumer, cancellationToken: stoppingToken);
+                await _channel.BasicConsumeAsync(QueueName, autoAck: false, consumer: consumer, cancellationToken: stoppingToken);
 
-        await Task.Delay(Timeout.Infinite, stoppingToken);
+                _logger.LogInformation("Worker conectado ao RabbitMQ e consumindo a fila {Queue}.", QueueName);
+
+                while (!stoppingToken.IsCancellationRequested && _connection is not null && _connection.IsOpen && _channel is not null && _channel.IsOpen)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+                }
+
+                _logger.LogWarning("Conexão com RabbitMQ fechada ou indisponível. Tentando reconectar...");
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Falha ao conectar ao RabbitMQ. Tentando novamente em 5 segundos...");
+            }
+            finally
+            {
+                await DisposeChannelAndConnectionAsync();
+            }
+
+            if (!stoppingToken.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+            }
+        }
+    }
+
+    private async ValueTask DisposeChannelAndConnectionAsync()
+    {
+        if (_channel is not null)
+        {
+            try
+            {
+                await _channel.CloseAsync();
+            }
+            catch
+            {
+                // Ignora falhas ao fechar o canal durante a reconexão.
+            }
+
+            await _channel.DisposeAsync();
+            _channel = null;
+        }
+
+        if (_connection is not null)
+        {
+            try
+            {
+                await _connection.CloseAsync();
+            }
+            catch
+            {
+                // Ignora falhas ao fechar a conexão durante a reconexão.
+            }
+
+            await _connection.DisposeAsync();
+            _connection = null;
+        }
     }
 
     private async Task ConfigurarTopologiaAsync()
@@ -123,8 +187,7 @@ public class NotificacaoGeralWorker : BackgroundService
 
     public override async void Dispose()
     {
-        if (_channel is not null) await _channel.DisposeAsync();
-        if (_connection is not null) await _connection.DisposeAsync();
+        await DisposeChannelAndConnectionAsync();
         base.Dispose();
     }
 }
