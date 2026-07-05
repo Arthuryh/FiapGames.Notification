@@ -1,157 +1,93 @@
 # FiapGames.Notification
 
-Microserviço responsável por processar notificações da plataforma FiapGames, consumindo eventos de mensageria e registrando o histórico de comunicações enviadas.
+Microserviço responsável por processar notificações da plataforma FiapGames, consumindo eventos de mensageria e registrando o histórico de comunicações enviadas. Construído com .NET 10, RabbitMQ e SQL Server LocalDB.
 
-Este serviço atua como o componente de integração assíncrona do ecossistema, recebendo mensagens via RabbitMQ e persistindo os registros de notificação em banco SQL Server.
+## Objetivo
 
-> Objetivo: oferecer uma base organizada e resiliente para processamento de notificações, seguindo princípios de Clean Architecture e integração com mensageria.
+Este projeto consome mensagens de eventos publicados por outros microsserviços e persiste o histórico de notificações em banco de dados.
 
----
+O fluxo principal é:
+- uma mensagem chega na fila RabbitMQ;
+- o worker lê o evento;
+- o evento é deserializado e processado;
+- o histórico da notificação é salvo no banco.
 
-## Arquitetura do Projeto
+## Arquitetura
 
-A solução é estruturada em camadas inspiradas em Clean Architecture, com foco em processamento assíncrono, tolerância a falhas e evolução incremental.
+A solução está organizada em três camadas principais:
 
-### Executar via Docker
+- Application: modelos de eventos de integração e contratos compartilhados.
+- Domain: entidades e interfaces de domínio.
+- Infrastructure: configuração do RabbitMQ, worker, contexto do EF Core e repositório.
 
-Na raiz do projeto, execute:
+## Tecnologias
 
-```bash
-docker compose up --build
-```
-
-### Estrutura da solução
-
-```txt
-FiapGame.Notification.sln
-
-src/
-├── 1-Notification.Application
-├── 2-Notification.Infrastructure
-└── 3-Notificacao.Domain
-```
-
-### Responsabilidades das camadas
-
-#### 1-Notification.Application
-
-Camada de aplicação.
-
-Responsável por:
-- Regras de negócio relacionadas a notificações
-- Serviços de aplicação
-- Casos de uso
-- DTOs
-- Interfaces de contratos
-
-#### 3-Notificacao.Domain
-
-Camada de domínio.
-
-Responsável por:
-- Entidades de notificação
-- Regras de domínio
-- Contratos principais
-- Lógica independente de framework
-
-#### 2-Notification.Infrastructure
-
-Camada de infraestrutura.
-
-Responsável por:
-- Worker service para processamento assíncrono
-- Integração com RabbitMQ
-- Persistência com Entity Framework Core
-- Contexto do banco
-- Implementações técnicas
-
----
-
-## Principais Funcionalidades
-
-Este microserviço é responsável por:
-- Consumo de mensagens de eventos de notificação
-- Processamento assíncrono de notificações
-- Registro de histórico de notificações
-- Integração com RabbitMQ
-- Persistência em SQL Server
-- Reprocessamento e recuperação de falhas
-
----
-
-## Stack Tecnológica
-
-- .NET 9
-- BackgroundService / Worker Service
+- .NET 10
+- RabbitMQ
 - Entity Framework Core
-- SQL Server
-- RabbitMQ
-- Docker Compose
+- SQL Server / LocalDB
+- xUnit para testes
 
----
+## Pré-requisitos
 
-## Padrões Utilizados
+- .NET 10 SDK
+- RabbitMQ instalado e em execução localmente
+- SQL Server LocalDB disponível
 
-- Clean Architecture
-- SOLID
-- Dependency Injection
-- Repository Pattern
-- Separation of Concerns
-- Event-driven processing
+## Configuração
 
----
+O arquivo de configuração está em:
+- src/2-Notification.Infrastructure/appsettings.json
 
-## Configuração do Ambiente
+As principais chaves são:
+- RabbitMq:HostName
+- RabbitMq:Port
+- RabbitMq:UserName
+- RabbitMq:Password
+- ConnectionStrings:DefaultConnection
 
-### Pré-requisitos
+## Execução
 
-Antes de executar este projeto, certifique-se de ter instalado:
-- .NET SDK 9+
-- SQL Server
-- RabbitMQ
-- Docker Desktop
-- Visual Studio 2022+ ou Rider
+1. Inicie o RabbitMQ localmente.
+2. Garanta que o SQL Server LocalDB esteja disponível.
+3. Aplique as migrações:
+   ```bash
+   dotnet ef database update --project src/2-Notification.Infrastructure/2-Notification.Infrastructure.csproj
+   ```
+4. Execute a aplicação:
+   ```bash
+   dotnet run --project src/2-Notification.Infrastructure/2-Notification.Infrastructure.csproj
+   ```
 
-### Exemplo de configuração
+## Fluxo de fila
 
-```json
-{
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost,1435;Database=fiapgames_notification;User Id=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=True;Encrypt=False"
-  },
-  "RabbitMq": {
-    "HostName": "localhost",
-    "Port": 5672,
-    "UserName": "guest",
-    "Password": "guest"
-  }
-}
-```
+O worker consome mensagens da exchange e fila:
+- exchange: notificacao.exchange
+- fila: notificacao.queue
+- routing keys aceitas:
+  - autenticacao.notificacao
+  - pagamento.notificacao
 
----
+O payload esperado segue o contrato de evento de integração com suporte a propriedades em camelCase.
 
-## Executando o Projeto
+## Persistência
 
-Restaurar dependências:
+As notificações processadas são salvas na tabela:
+- HistoricoNotificacoes
 
-```bash
-dotnet restore
-```
-
-Executar o worker:
-
-```bash
-dotnet run --project src/2-Notification.Infrastructure
-```
-
----
+O repositório responsável pela gravação está em:
+- src/2-Notification.Infrastructure/Repository/HistoricoNotificacaoRepository.cs
 
 ## Testes
 
-Este projeto pode ser validado via execução local do worker e verificação do fluxo de mensagens no RabbitMQ.
+Para executar os testes:
 
----
+```bash
+ dotnet test FiapGame.Notification.slnx
+```
 
-## Licença
+## Observações
 
-Projeto desenvolvido para fins acadêmicos e evolução arquitetural da plataforma FiapGames.
+- O worker usa acknowledge manual (`ack/nack`) para controlar o ciclo de processamento.
+- Em caso de erro, a mensagem pode ser descartada da fila conforme a implementação atual.
+- Para troubleshooting, verifique os logs do worker e o estado da fila no RabbitMQ.

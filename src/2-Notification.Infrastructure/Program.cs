@@ -7,13 +7,11 @@ using Workers;
 
 var builder = Host.CreateApplicationBuilder(args);
 
-// 1. LER AS CONFIGURAÇÕES DO APPSETTINGS.JSON
 var rabbitHost = builder.Configuration["RabbitMq:HostName"];
 var rabbitPort = int.Parse(builder.Configuration["RabbitMq:Port"] ?? "5672");
 var rabbitUser = builder.Configuration["RabbitMq:UserName"];
 var rabbitPass = builder.Configuration["RabbitMq:Password"];
 
-// 2. CONFIGURAR A CONEXÃO USANDO AS VARIÁVEIS LIDAS
 builder.Services.AddSingleton<IConnectionFactory>(sp => new ConnectionFactory
 {
     HostName = rabbitHost,

@@ -148,21 +148,21 @@ public class NotificacaoGeralWorker : BackgroundService
 
         using var logScope = _logger.BeginScope(new Dictionary<string, object> { ["RastreioId"] = rastreioId });
 
+        string? json = null;
+
         try
         {
             var body = ea.Body.ToArray();
-            var json = System.Text.Encoding.UTF8.GetString(body);
-            var notificacao = JsonSerializer.Deserialize<NotificacaoIntegrationEvent>(json);
+            json = System.Text.Encoding.UTF8.GetString(body);
+            var notificacao = NotificacaoIntegrationEvent.Deserialize(json);
 
             if (notificacao is null) throw new JsonException("Evento nulo.");
 
             _logger.LogInformation("Enviando e-mail para {Email}", notificacao.Destinatario);
             await Task.Delay(1000); // Simulando o envio
 
-            
             using (var scope = _scopeFactory.CreateScope())
             {
-                
                 var repositorio = scope.ServiceProvider.GetRequiredService<IHistoricoNotificacaoRepository>();
 
                 var historico = new HistoricoNotificacao(
@@ -180,7 +180,7 @@ public class NotificacaoGeralWorker : BackgroundService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Erro no envio.");
+            _logger.LogError(ex, "Erro ao processar mensagem da fila {Queue}. Payload: {Payload}", QueueName, json);
             await _channel!.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: false);
         }
     }
