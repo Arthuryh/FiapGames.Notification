@@ -91,3 +91,15 @@ Para executar os testes:
 - O worker usa acknowledge manual (`ack/nack`) para controlar o ciclo de processamento.
 - Em caso de erro, a mensagem pode ser descartada da fila conforme a implementação atual.
 - Para troubleshooting, verifique os logs do worker e o estado da fila no RabbitMQ.
+
+## Kubernetes (autonomia por serviço)
+
+Manifests próprios do serviço estão em `k8s/`:
+
+- `notification-worker-configmap.yaml`
+- `notification-worker-secret.yaml`
+- `notification-worker-service.yaml`
+- `notification-worker-deployment.yaml`
+
+ConfigMap contém variáveis não sensíveis (ambiente, host e porta do RabbitMQ).
+Secret contém variáveis sensíveis (connection string e credenciais do RabbitMQ).
