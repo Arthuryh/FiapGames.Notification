@@ -16,17 +16,25 @@ public class NotificacaoGeralWorker : BackgroundService
     private IConnection? _connection;
     private IChannel? _channel;
 
-    // 1. Constantes conforme o FLUXOGRAMA
-    private const string ExchangeName = "notificacao.exchange";
-    private const string QueueName = "notificacao.queue";
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
 
-    // 2. Routing Keys que esta fila vai escutar
-    private readonly string[] _routingKeys = { "autenticacao.notificacao", "pagamento.notificacao" };
+    private const string ExchangeName = "pagamento.exchange";
+    private const string QueueName = "notificacao.pagamento.processado";
+    private readonly string[] _routingKeys = { "pagamento.aprovado", "pagamento.recusado" };
 
-    // 3. Topologia de Erro (DLQ)
-    private const string DlxExchangeName = "notificacao.dlx.exchange";
-    private const string DlqQueueName = "notificacao.dlq";
-    private const string DlxRoutingKey = "notificacao.falha";
+    private const string DlxExchangeName = "pagamento.notificacao.dlx.exchange";
+    private const string DlqQueueName = "notificacao.pagamento.processado.dlq";
+    private const string DlxRoutingKey = "pagamento.notificacao.falha";
+
+    internal sealed record NotificacaoDraft(
+        string Destinatario,
+        string Assunto,
+        string StatusHistorico,
+        string MensagemLog,
+        object[] MensagemLogArgs);
 
     public NotificacaoGeralWorker(IConnectionFactory connectionFactory, ILogger<NotificacaoGeralWorker> logger, IServiceScopeFactory scopeFactory)
     {
@@ -116,15 +124,12 @@ public class NotificacaoGeralWorker : BackgroundService
 
     private async Task ConfigurarTopologiaAsync()
     {
-        // A. Declara as Exchanges (A principal e a de erro)
         await _channel!.ExchangeDeclareAsync(ExchangeName, ExchangeType.Direct, true, false);
         await _channel.ExchangeDeclareAsync(DlxExchangeName, ExchangeType.Direct, true, false);
 
-        // B. Configura a DLQ
         await _channel.QueueDeclareAsync(DlqQueueName, true, false, false, null);
         await _channel.QueueBindAsync(DlqQueueName, DlxExchangeName, DlxRoutingKey);
 
-        // C. Configura a Fila Principal apontando falhas para a DLX
         var mainQueueArguments = new Dictionary<string, object?>
         {
             { "x-dead-letter-exchange", DlxExchangeName },
@@ -132,7 +137,6 @@ public class NotificacaoGeralWorker : BackgroundService
         };
         await _channel.QueueDeclareAsync(QueueName, true, false, false, mainQueueArguments);
 
-        // D. O SEGREDO DO FLUXOGRAMA: Múltiplos Binds na mesma fila!
         foreach (var routingKey in _routingKeys)
         {
             await _channel.QueueBindAsync(QueueName, ExchangeName, routingKey);
@@ -154,12 +158,14 @@ public class NotificacaoGeralWorker : BackgroundService
         {
             var body = ea.Body.ToArray();
             json = System.Text.Encoding.UTF8.GetString(body);
-            var notificacao = NotificacaoIntegrationEvent.Deserialize(json);
+            var evento = JsonSerializer.Deserialize<PagamentoProcessadoIntegrationEvent>(json, JsonOptions);
 
-            if (notificacao is null) throw new JsonException("Evento nulo.");
+            if (evento is null) throw new JsonException("Evento nulo.");
 
-            _logger.LogInformation("Enviando e-mail para {Email}", notificacao.Destinatario);
-            await Task.Delay(1000); // Simulando o envio
+            var draft = CriarNotificacao(evento);
+            _logger.LogInformation(draft.MensagemLog, draft.MensagemLogArgs);
+
+            await Task.Delay(1000);
 
             using (var scope = _scopeFactory.CreateScope())
             {
@@ -167,10 +173,10 @@ public class NotificacaoGeralWorker : BackgroundService
 
                 var historico = new HistoricoNotificacao(
                     rastreioId,
-                    notificacao.Destinatario,
-                    notificacao.Assunto,
+                    draft.Destinatario,
+                    draft.Assunto,
                     DateTime.UtcNow,
-                    "Sucesso");
+                    draft.StatusHistorico);
 
                 await repositorio.SalvarAsync(historico);
             }
@@ -183,6 +189,30 @@ public class NotificacaoGeralWorker : BackgroundService
             _logger.LogError(ex, "Erro ao processar mensagem da fila {Queue}. Payload: {Payload}", QueueName, json);
             await _channel!.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: false);
         }
+    }
+
+    internal static NotificacaoDraft CriarNotificacao(PagamentoProcessadoIntegrationEvent evento)
+    {
+        var destinatario = string.IsNullOrWhiteSpace(evento.EmailUsuario)
+            ? $"usuario-{evento.UsuarioId}@fiapgames.local"
+            : evento.EmailUsuario;
+
+        if (evento.Aprovado)
+        {
+            return new NotificacaoDraft(
+                Destinatario: destinatario,
+                Assunto: $"Compra aprovada no FiapGames (#{evento.CompraId})",
+                StatusHistorico: "Sucesso",
+                MensagemLog: "Enviando e-mail de confirmação para {Email} da compra {CompraId}",
+                MensagemLogArgs: [destinatario, evento.CompraId]);
+        }
+
+        return new NotificacaoDraft(
+            Destinatario: destinatario,
+            Assunto: $"Compra recusada no FiapGames (#{evento.CompraId})",
+            StatusHistorico: "Recusado",
+            MensagemLog: "Enviando e-mail de recusa para {Email} da compra {CompraId}. Motivo: {Motivo}",
+            MensagemLogArgs: [destinatario, evento.CompraId, evento.MotivoRecusa ?? "Nao informado"]);
     }
 
     public override async void Dispose()
