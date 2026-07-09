@@ -1,9 +1,22 @@
-﻿namespace IntegrationEvents;
+﻿using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace IntegrationEvents;
 
 public record NotificacaoIntegrationEvent(
-    Guid CorrelacaoId,     // O ID do Login ou do Pagamento (para rastreabilidade)
-    string Destinatario,   // O e-mail ou telefone do cliente
-    string Assunto,        // Ex: "Bem-vindo!" ou "Pagamento Aprovado"
-    string CorpoMensagem,  // O texto final ou template HTML
-    string DominioOrigem   // Ex: "Autenticacao" ou "Pagamento"
-);
+    [property: JsonPropertyName("correlacaoId")] Guid CorrelacaoId,
+    [property: JsonPropertyName("destinatario")] string Destinatario,
+    [property: JsonPropertyName("assunto")] string Assunto,
+    [property: JsonPropertyName("corpoMensagem")] string CorpoMensagem,
+    [property: JsonPropertyName("dominioOrigem")] string DominioOrigem)
+{
+    private static readonly JsonSerializerOptions SerializerOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
+    public static NotificacaoIntegrationEvent? Deserialize(string json)
+    {
+        return JsonSerializer.Deserialize<NotificacaoIntegrationEvent>(json, SerializerOptions);
+    }
+}
