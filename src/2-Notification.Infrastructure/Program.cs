@@ -39,6 +39,7 @@ builder.Services.AddScoped<IHistoricoNotificacaoRepository, HistoricoNotificacao
 
 // Registra o Worker
 builder.Services.AddHostedService<NotificacaoGeralWorker>();
+builder.Services.AddHostedService<NotificacaoAutenticacaoWorker>();
 
 var host = builder.Build();
 await InitializeDatabaseAsync(host);
