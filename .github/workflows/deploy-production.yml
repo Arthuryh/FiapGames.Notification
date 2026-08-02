@@ -1,0 +1,147 @@
+name: Deploy Notification Service to Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-ca-notification-worker
+  cancel-in-progress: false
+
+env:
+  AZURE_RESOURCE_GROUP: rg-fiapgames-prod
+  CONTAINER_APP_ENVIRONMENT: cae-fiapgames-prod
+  CONTAINER_APP_NAME: ca-notification-worker
+  IMAGE_NAME: notification-worker
+  ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
+  KEY_VAULT_URI: ${{ vars.KEY_VAULT_URI }}
+  MANAGED_IDENTITY_RESOURCE_ID: ${{ vars.AZURE_MANAGED_IDENTITY_RESOURCE_ID }}
+  MANAGED_IDENTITY_CLIENT_ID: ${{ vars.AZURE_MANAGED_IDENTITY_CLIENT_ID }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Log in to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Log in to Azure Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ACR_LOGIN_SERVER }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Run database migrations
+        uses: azure/cli@v2
+        env:
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+        with:
+          inlineScript: |
+            set -euo pipefail
+            : "${ACR_LOGIN_SERVER:?ACR_LOGIN_SERVER is required}"
+            : "${ACR_USERNAME:?ACR_USERNAME is required}"
+            : "${ACR_PASSWORD:?ACR_PASSWORD is required}"
+            : "${KEY_VAULT_URI:?KEY_VAULT_URI is required}"
+            : "${MANAGED_IDENTITY_RESOURCE_ID:?AZURE_MANAGED_IDENTITY_RESOURCE_ID is required}"
+            : "${MANAGED_IDENTITY_CLIENT_ID:?AZURE_MANAGED_IDENTITY_CLIENT_ID is required}"
+
+            IMAGE="${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${GITHUB_SHA}"
+            JOB_NAME="notification-mig-${GITHUB_RUN_ID:0:12}-${GITHUB_RUN_ATTEMPT}"
+
+            cleanup() {
+              az containerapp job delete --name "$JOB_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" --yes \
+                --output none 2>/dev/null || true
+            }
+            trap cleanup EXIT
+
+            az containerapp job create \
+              --name "$JOB_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --environment "$CONTAINER_APP_ENVIRONMENT" \
+              --trigger-type Manual \
+              --replica-timeout 1800 \
+              --replica-retry-limit 0 \
+              --replica-completion-count 1 \
+              --parallelism 1 \
+              --image "$IMAGE" \
+              --cpu 0.5 \
+              --memory 1Gi \
+              --registry-server "$ACR_LOGIN_SERVER" \
+              --registry-username "$ACR_USERNAME" \
+              --registry-password "$ACR_PASSWORD" \
+              --mi-user-assigned "$MANAGED_IDENTITY_RESOURCE_ID" \
+              --env-vars ASPNETCORE_ENVIRONMENT=Production \
+                KeyVaultUri="$KEY_VAULT_URI" \
+                AZURE_CLIENT_ID="$MANAGED_IDENTITY_CLIENT_ID" \
+              --args=--migrate \
+              --output none
+
+            EXECUTION_NAME=$(az containerapp job start \
+              --name "$JOB_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --query name --output tsv)
+
+            test -n "$EXECUTION_NAME" || {
+              echo "Migration job returned no execution name." >&2
+              exit 1
+            }
+
+            for attempt in $(seq 1 180); do
+              STATUS=$(az containerapp job execution show \
+                --name "$JOB_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --job-execution-name "$EXECUTION_NAME" \
+                --query properties.status --output tsv)
+
+              echo "Migration status: $STATUS"
+              case "$STATUS" in
+                Succeeded) exit 0 ;;
+                Failed|Stopped|Degraded|Unknown)
+                  az containerapp job execution show \
+                    --name "$JOB_NAME" \
+                    --resource-group "$AZURE_RESOURCE_GROUP" \
+                    --job-execution-name "$EXECUTION_NAME" \
+                    --output json
+                  exit 1
+                  ;;
+              esac
+              sleep 10
+            done
+
+            echo "Migration timed out after 30 minutes." >&2
+            exit 1
+
+      - name: Deploy revision
+        uses: azure/container-apps-deploy-action@v2
+        with:
+          acrName: ${{ secrets.ACR_NAME }}
+          containerAppName: ${{ env.CONTAINER_APP_NAME }}
+          containerAppEnvironment: ${{ env.CONTAINER_APP_ENVIRONMENT }}
+          resourceGroup: ${{ env.AZURE_RESOURCE_GROUP }}
+          imageToDeploy: ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
