@@ -32,6 +32,17 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
+      - name: Validate Azure credentials secret
+        env:
+          AZURE_CREDENTIALS_JSON: ${{ secrets.AZURE_CREDENTIALS }}
+        run: |
+          test -n "$AZURE_CREDENTIALS_JSON"
+          printf '%s' "$AZURE_CREDENTIALS_JSON" | jq -e '
+            type == "object" and
+            all(.clientId, .clientSecret, .subscriptionId, .tenantId;
+              type == "string" and length > 0)
+          ' > /dev/null
+
       - name: Log in to Azure
         uses: azure/login@v2
         with:
