@@ -45,11 +45,11 @@ var rabbitHealthConnection = new Lazy<Task<IConnection>>(
 
 builder.Services.AddSingleton<IConnectionFactory>(rabbitConnectionFactory);
 
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+var connectionString = builder.Configuration.GetConnectionString("NotificationConnection");
 if (string.IsNullOrWhiteSpace(connectionString))
 {
     throw new InvalidOperationException(
-        "Connection string DefaultConnection is required.");
+        "Connection string NotificationConnection is required.");
 }
 
 // Registra o Entity Framework (Lembre-se de adicionar a string de conexão no appsettings.json)

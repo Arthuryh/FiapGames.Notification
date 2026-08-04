@@ -8,7 +8,7 @@ services:
     container_name: fiapgames-notification-worker
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ConnectionStrings__DefaultConnection: "Server=sqlserver-notification,1433;Database=fiapgames_notifications;User Id=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=True;Encrypt=False;Connect Timeout=60;ConnectRetryCount=20;ConnectRetryInterval=5"
+      ConnectionStrings__NotificationConnection: "Server=sqlserver-notification,1433;Database=fiapgames_notifications;User Id=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=True;Encrypt=False;Connect Timeout=60;ConnectRetryCount=20;ConnectRetryInterval=5"
       RabbitMq__HostName: "rabbitmq"
       RabbitMq__Port: "5672"
       RabbitMq__UserName: "guest"
