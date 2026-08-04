@@ -17,7 +17,7 @@ env:
   CONTAINER_APP_ENVIRONMENT: cae-fiapgames-prod
   CONTAINER_APP_NAME: ca-notification-worker
   IMAGE_NAME: notification-worker
-  ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
+  ACR_LOGIN_SERVER: acrfiapgamesprodcec7f71a.azurecr.io
   KEY_VAULT_URI: ${{ vars.KEY_VAULT_URI }}
   MANAGED_IDENTITY_RESOURCE_ID: ${{ vars.AZURE_MANAGED_IDENTITY_RESOURCE_ID }}
   MANAGED_IDENTITY_CLIENT_ID: ${{ vars.AZURE_MANAGED_IDENTITY_CLIENT_ID }}
