@@ -96,7 +96,7 @@ jobs:
               --environment "$CONTAINER_APP_ENVIRONMENT" \
               --trigger-type Manual \
               --replica-timeout 1800 \
-              --replica-retry-limit 0 \
+              --replica-retry-limit 2 \
               --replica-completion-count 1 \
               --parallelism 1 \
               --image "$IMAGE" \
@@ -150,7 +150,7 @@ jobs:
       - name: Deploy revision
         uses: azure/container-apps-deploy-action@v2
         with:
-          acrName: ${{ secrets.ACR_NAME }}
+          acrName: acrfiapgamesprodcec7f71a
           containerAppName: ${{ env.CONTAINER_APP_NAME }}
           containerAppEnvironment: ${{ env.CONTAINER_APP_ENVIRONMENT }}
           resourceGroup: ${{ env.AZURE_RESOURCE_GROUP }}
