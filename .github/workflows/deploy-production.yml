@@ -105,11 +105,16 @@ jobs:
               --registry-server "$ACR_LOGIN_SERVER" \
               --registry-username "$ACR_USERNAME" \
               --registry-password "$ACR_PASSWORD" \
-              --mi-user-assigned "$MANAGED_IDENTITY_RESOURCE_ID" \
               --env-vars ASPNETCORE_ENVIRONMENT=Production \
                 KeyVaultUri="$KEY_VAULT_URI" \
                 AZURE_CLIENT_ID="$MANAGED_IDENTITY_CLIENT_ID" \
               --args=--migrate \
+              --output none
+
+            az containerapp job identity assign \
+              --name "$JOB_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --user-assigned "$MANAGED_IDENTITY_RESOURCE_ID" \
               --output none
 
             EXECUTION_NAME=$(az containerapp job start \
