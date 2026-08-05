@@ -19,8 +19,8 @@ env:
   IMAGE_NAME: notification-worker
   ACR_LOGIN_SERVER: acrfiapgamesprodcec7f71a.azurecr.io
   KEY_VAULT_URI: https://kv-fiapgames-cec7f71a.vault.azure.net/
-  MANAGED_IDENTITY_RESOURCE_ID: ${{ vars.AZURE_MANAGED_IDENTITY_RESOURCE_ID }}
-  MANAGED_IDENTITY_CLIENT_ID: ${{ vars.AZURE_MANAGED_IDENTITY_CLIENT_ID }}
+  MANAGED_IDENTITY_RESOURCE_ID: /subscriptions/cec7f71a-b642-403e-bd36-dfcf0467ced4/resourceGroups/rg-fiapgames-prod/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-fiapgames-workloads-prod
+  MANAGED_IDENTITY_CLIENT_ID: e302d8a9-bdd4-4f92-b9a8-17e963a7a17c
 
 jobs:
   deploy:
