@@ -111,11 +111,15 @@ jobs:
               --args=--migrate \
               --output none
 
-            az containerapp job identity assign \
+            JOB_RESOURCE_ID=$(az containerapp job show \
               --name "$JOB_NAME" \
               --resource-group "$AZURE_RESOURCE_GROUP" \
-              --user-assigned "$MANAGED_IDENTITY_RESOURCE_ID" \
-              --output none
+              --query id --output tsv)
+            IDENTITY_BODY=$(jq -n --arg id "$MANAGED_IDENTITY_RESOURCE_ID" \
+              '{identity:{type:"UserAssigned",userAssignedIdentities:{($id):{}}}}')
+            az rest --method PATCH \
+              --uri "https://management.azure.com${JOB_RESOURCE_ID}?api-version=2025-01-01" \
+              --body "$IDENTITY_BODY" --output none
 
             EXECUTION_NAME=$(az containerapp job start \
               --name "$JOB_NAME" \
@@ -152,8 +156,23 @@ jobs:
             echo "Migration timed out after 30 minutes." >&2
             exit 1
 
-      - name: Assign runtime managed identity
+      - name: Prepare Container App identity
         run: |
+          STATE=$(az containerapp show --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query properties.provisioningState --output tsv 2>/dev/null || true)
+          if [ "$STATE" = "Failed" ]; then
+            az containerapp delete --name "$CONTAINER_APP_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" --yes --output none
+          fi
+          if ! az containerapp show --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" --output none 2>/dev/null; then
+            az containerapp create --name "$CONTAINER_APP_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --environment "$CONTAINER_APP_ENVIRONMENT" \
+              --image mcr.microsoft.com/azuredocs/containerapps-helloworld:latest \
+              --ingress disabled --output none
+          fi
           az containerapp identity assign \
             --name "$CONTAINER_APP_NAME" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
