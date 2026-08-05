@@ -171,13 +171,19 @@ jobs:
               --resource-group "$AZURE_RESOURCE_GROUP" \
               --environment "$CONTAINER_APP_ENVIRONMENT" \
               --image mcr.microsoft.com/azuredocs/containerapps-helloworld:latest \
-              --ingress disabled --output none
+              --output none
           fi
-          az containerapp identity assign \
-            --name "$CONTAINER_APP_NAME" \
+          for attempt in $(seq 1 12); do
+            if az containerapp identity assign \
+              --name "$CONTAINER_APP_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --user-assigned "$MANAGED_IDENTITY_RESOURCE_ID" \
+              --output none; then break; fi
+            sleep 10
+          done
+          az containerapp show --name "$CONTAINER_APP_NAME" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
-            --user-assigned "$MANAGED_IDENTITY_RESOURCE_ID" \
-            --output none
+            --query identity.type --output tsv | grep -q UserAssigned
 
       - name: Deploy revision
         uses: azure/container-apps-deploy-action@v2
