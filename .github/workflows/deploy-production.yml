@@ -152,11 +152,23 @@ jobs:
             echo "Migration timed out after 30 minutes." >&2
             exit 1
 
+      - name: Assign runtime managed identity
+        run: |
+          az containerapp identity assign \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --user-assigned "$MANAGED_IDENTITY_RESOURCE_ID" \
+            --output none
+
       - name: Deploy revision
         uses: azure/container-apps-deploy-action@v2
         with:
           acrName: acrfiapgamesprodcec7f71a
+          acrUsername: ${{ secrets.ACR_USERNAME }}
+          acrPassword: ${{ secrets.ACR_PASSWORD }}
           containerAppName: ${{ env.CONTAINER_APP_NAME }}
           containerAppEnvironment: ${{ env.CONTAINER_APP_ENVIRONMENT }}
           resourceGroup: ${{ env.AZURE_RESOURCE_GROUP }}
           imageToDeploy: ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          ingress: disabled
+          environmentVariables: ASPNETCORE_ENVIRONMENT=Production KeyVaultUri=${{ env.KEY_VAULT_URI }} AZURE_CLIENT_ID=${{ env.MANAGED_IDENTITY_CLIENT_ID }}
