@@ -1,5 +1,13 @@
 # FiapGames.Notification
 
+## Producao no Azure
+
+O Notification e um Worker Service sem ingress HTTP publico, executado no Azure Container Apps. Ele consome RabbitMQ dentro do Container Apps Environment e persiste em um banco Azure SQL exclusivo.
+
+Connection string e credenciais RabbitMQ sao carregadas do Azure Key Vault usando identidade gerenciada. As filas possuem DLX/DLQ; mensagens com falha recebem `BasicNack(requeue: false)` para evitar descarte silencioso.
+
+O workflow `.github/workflows/deploy-production.yml` publica a imagem no ACR, executa `--migrate` em um Container Apps Job efemero e atualiza o worker somente apos sucesso. O worker permanece limitado a uma replica para manter o consumidor AMQP ativo.
+
 Microserviço responsável por processar notificações da plataforma FiapGames, consumindo eventos de mensageria e registrando o histórico de comunicações enviadas. Construído com .NET 10, RabbitMQ e SQL Server LocalDB.
 
 ## Objetivo
