@@ -2,7 +2,7 @@ name: Deploy Notification Service to Production
 
 on:
   push:
-    branches: [main, azureContainer]
+    branches: [master]
   workflow_dispatch:
 
 permissions:
