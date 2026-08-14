@@ -1,8 +1,10 @@
-# Build stage
+# Ephemeral database migration image. This image is not deployed as a service.
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 COPY ["src/2-Notification.Infrastructure/2-Notification.Infrastructure.csproj", "src/2-Notification.Infrastructure/"]
+COPY ["src/1-Notification.Application/1-Notification.Application.csproj", "src/1-Notification.Application/"]
+COPY ["src/3-Notificacao.Domain/3-Notificacao.Domain.csproj", "src/3-Notificacao.Domain/"]
 
 RUN dotnet restore "src/2-Notification.Infrastructure/2-Notification.Infrastructure.csproj"
 

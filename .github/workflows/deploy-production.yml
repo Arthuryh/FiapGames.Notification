@@ -1,23 +1,32 @@
-name: Deploy Notification Service to Production
+name: Deploy Notification Function to Production
 
 on:
   push:
-    branches: [master]
+    branches: [master, azureContainer]
   workflow_dispatch:
+    inputs:
+      run_migrations:
+        description: Run the ephemeral database migration job
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: production-ca-notification-worker
-  cancel-in-progress: false
+  group: production-function-notification
+  cancel-in-progress: true
 
 env:
   AZURE_RESOURCE_GROUP: rg-fiapgames-prod
+  AZURE_LOCATION: brazilsouth
+  AZURE_SUBSCRIPTION_ID: cec7f71a-b642-403e-bd36-dfcf0467ced4
   CONTAINER_APP_ENVIRONMENT: cae-fiapgames-prod
-  CONTAINER_APP_NAME: ca-notification-worker
-  IMAGE_NAME: notification-worker
+  LEGACY_CONTAINER_APP_NAME: ca-notification-worker
+  FUNCTION_APP_NAME: func-fcg-notify-cec7f71a
   ACR_LOGIN_SERVER: acrfiapgamesprodcec7f71a.azurecr.io
+  IMAGE_NAME: notification-migrations
   KEY_VAULT_URI: https://kv-fiapgames-cec7f71a.vault.azure.net/
   MANAGED_IDENTITY_RESOURCE_ID: /subscriptions/cec7f71a-b642-403e-bd36-dfcf0467ced4/resourceGroups/rg-fiapgames-prod/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-fiapgames-workloads-prod
   MANAGED_IDENTITY_CLIENT_ID: e302d8a9-bdd4-4f92-b9a8-17e963a7a17c
@@ -32,40 +41,99 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Validate Azure credentials secret
+      - name: Validate Azure credentials
         env:
           AZURE_CREDENTIALS_JSON: ${{ secrets.AZURE_CREDENTIALS }}
         run: |
-          test -n "$AZURE_CREDENTIALS_JSON"
+          set -euo pipefail
           printf '%s' "$AZURE_CREDENTIALS_JSON" | jq -e '
             type == "object" and
             all(.clientId, .clientSecret, .subscriptionId, .tenantId;
               type == "string" and length > 0)
-          ' > /dev/null
+          ' >/dev/null
+          echo "ARM_CLIENT_ID=$(jq -r .clientId <<<"$AZURE_CREDENTIALS_JSON")" >> "$GITHUB_ENV"
+          echo "ARM_CLIENT_SECRET=$(jq -r .clientSecret <<<"$AZURE_CREDENTIALS_JSON")" >> "$GITHUB_ENV"
+          echo "ARM_TENANT_ID=$(jq -r .tenantId <<<"$AZURE_CREDENTIALS_JSON")" >> "$GITHUB_ENV"
+          echo "ARM_SUBSCRIPTION_ID=$(jq -r .subscriptionId <<<"$AZURE_CREDENTIALS_JSON")" >> "$GITHUB_ENV"
 
       - name: Log in to Azure
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Log in to Azure Container Registry
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Bootstrap Terraform state
+        run: |
+          set -euo pipefail
+          STATE_ACCOUNT="stfcgtfstatecec7f71a"
+          az storage account create --name "$STATE_ACCOUNT" --resource-group "$AZURE_RESOURCE_GROUP" \
+            --location "$AZURE_LOCATION" --sku Standard_LRS --min-tls-version TLS1_2 --output none
+          KEY=$(az storage account keys list --account-name "$STATE_ACCOUNT" \
+            --resource-group "$AZURE_RESOURCE_GROUP" --query '[0].value' --output tsv)
+          az storage container create --name tfstate --account-name "$STATE_ACCOUNT" \
+            --account-key "$KEY" --output none
+
+      - name: Provision serverless infrastructure
+        working-directory: infra
+        run: |
+          set -euo pipefail
+          terraform init -input=false \
+            -backend-config="storage_account_name=stfcgtfstatecec7f71a" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=notification-serverless.tfstate" \
+            -backend-config="resource_group_name=$AZURE_RESOURCE_GROUP"
+          terraform fmt -check
+          terraform validate
+          terraform apply -auto-approve -input=false -var="subscription_id=$AZURE_SUBSCRIPTION_ID"
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Test and publish Function
+        run: |
+          dotnet test FiapGame.Notification.slnx --configuration Release
+          dotnet publish src/2-Notification.Infrastructure/2-Notification.Infrastructure.csproj \
+            --configuration Release --output ./publish
+
+      - name: Detect database migration changes
+        id: migration-changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          BEFORE="${{ github.event.before }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.run_migrations }}" = "true" ]; then
+            echo "required=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            echo "required=false" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$BEFORE" "$GITHUB_SHA" -- src/2-Notification.Infrastructure/Migrations; then
+            echo "required=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "required=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to ACR
+        if: steps.migration-changes.outputs.required == 'true'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.ACR_LOGIN_SERVER }}
           username: ${{ secrets.ACR_USERNAME }}
           password: ${{ secrets.ACR_PASSWORD }}
 
-      - name: Build and push image
+      - name: Build migration image
+        if: steps.migration-changes.outputs.required == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           push: true
-          tags: |
-            ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          tags: ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
 
       - name: Run database migrations
+        if: steps.migration-changes.outputs.required == 'true'
         uses: azure/cli@v2
         env:
           ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
@@ -73,136 +141,44 @@ jobs:
         with:
           inlineScript: |
             set -euo pipefail
-            : "${ACR_LOGIN_SERVER:?ACR_LOGIN_SERVER is required}"
-            : "${ACR_USERNAME:?ACR_USERNAME is required}"
-            : "${ACR_PASSWORD:?ACR_PASSWORD is required}"
-            : "${KEY_VAULT_URI:?KEY_VAULT_URI is required}"
-            : "${MANAGED_IDENTITY_RESOURCE_ID:?AZURE_MANAGED_IDENTITY_RESOURCE_ID is required}"
-            : "${MANAGED_IDENTITY_CLIENT_ID:?AZURE_MANAGED_IDENTITY_CLIENT_ID is required}"
-
-            IMAGE="${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${GITHUB_SHA}"
             JOB_NAME="notification-mig-${GITHUB_RUN_ID:0:12}-${GITHUB_RUN_ATTEMPT}"
-
-            cleanup() {
-              az containerapp job delete --name "$JOB_NAME" \
-                --resource-group "$AZURE_RESOURCE_GROUP" --yes \
-                --output none 2>/dev/null || true
-            }
-            trap cleanup EXIT
-
-            az containerapp job create \
-              --name "$JOB_NAME" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --environment "$CONTAINER_APP_ENVIRONMENT" \
-              --trigger-type Manual \
-              --replica-timeout 1800 \
-              --replica-retry-limit 2 \
-              --replica-completion-count 1 \
-              --parallelism 1 \
-              --image "$IMAGE" \
-              --cpu 0.5 \
-              --memory 1Gi \
-              --registry-server "$ACR_LOGIN_SERVER" \
-              --registry-username "$ACR_USERNAME" \
-              --registry-password "$ACR_PASSWORD" \
-              --env-vars ASPNETCORE_ENVIRONMENT=Production \
-                KeyVaultUri="$KEY_VAULT_URI" \
-                AZURE_CLIENT_ID="$MANAGED_IDENTITY_CLIENT_ID" \
-              --args=--migrate \
-              --output none
-
-            JOB_RESOURCE_ID=$(az containerapp job show \
-              --name "$JOB_NAME" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --query id --output tsv)
-            IDENTITY_BODY=$(jq -n --arg id "$MANAGED_IDENTITY_RESOURCE_ID" \
-              '{identity:{type:"UserAssigned",userAssignedIdentities:{($id):{}}}}')
-            az rest --method PATCH \
-              --uri "https://management.azure.com${JOB_RESOURCE_ID}?api-version=2025-01-01" \
-              --body "$IDENTITY_BODY" --output none
-
-            EXECUTION_NAME=$(az containerapp job start \
-              --name "$JOB_NAME" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --query name --output tsv)
-
-            test -n "$EXECUTION_NAME" || {
-              echo "Migration job returned no execution name." >&2
-              exit 1
-            }
-
+            trap 'az containerapp job delete -n "$JOB_NAME" -g "$AZURE_RESOURCE_GROUP" --yes --output none 2>/dev/null || true' EXIT
+            az containerapp job create -n "$JOB_NAME" -g "$AZURE_RESOURCE_GROUP" \
+              --environment "$CONTAINER_APP_ENVIRONMENT" --trigger-type Manual \
+              --replica-timeout 1800 --replica-retry-limit 2 \
+              --image "$ACR_LOGIN_SERVER/$IMAGE_NAME:$GITHUB_SHA" --cpu 0.5 --memory 1Gi \
+              --registry-server "$ACR_LOGIN_SERVER" --registry-username "$ACR_USERNAME" \
+              --registry-password "$ACR_PASSWORD" --args=--migrate \
+              --env-vars ASPNETCORE_ENVIRONMENT=Production KeyVaultUri="$KEY_VAULT_URI" \
+                AZURE_CLIENT_ID="$MANAGED_IDENTITY_CLIENT_ID" --output none
+            JOB_ID=$(az containerapp job show -n "$JOB_NAME" -g "$AZURE_RESOURCE_GROUP" --query id -o tsv)
+            BODY=$(jq -n --arg id "$MANAGED_IDENTITY_RESOURCE_ID" '{identity:{type:"UserAssigned",userAssignedIdentities:{($id):{}}}}')
+            az rest --method PATCH --uri "https://management.azure.com${JOB_ID}?api-version=2025-01-01" --body "$BODY" --output none
+            EXECUTION=$(az containerapp job start -n "$JOB_NAME" -g "$AZURE_RESOURCE_GROUP" --query name -o tsv)
             for attempt in $(seq 1 180); do
-              STATUS=$(az containerapp job execution show \
-                --name "$JOB_NAME" \
-                --resource-group "$AZURE_RESOURCE_GROUP" \
-                --job-execution-name "$EXECUTION_NAME" \
-                --query properties.status --output tsv)
-
+              STATUS=$(az containerapp job execution show -n "$JOB_NAME" -g "$AZURE_RESOURCE_GROUP" \
+                --job-execution-name "$EXECUTION" --query properties.status -o tsv)
               echo "Migration status: $STATUS"
-              case "$STATUS" in
-                Succeeded) exit 0 ;;
-                Failed|Stopped|Degraded|Unknown)
-                  az containerapp job execution show \
-                    --name "$JOB_NAME" \
-                    --resource-group "$AZURE_RESOURCE_GROUP" \
-                    --job-execution-name "$EXECUTION_NAME" \
-                    --output json
-                  exit 1
-                  ;;
-              esac
+              [ "$STATUS" = Succeeded ] && exit 0
+              [ "$STATUS" = Failed ] && exit 1
               sleep 10
             done
-
-            echo "Migration timed out after 30 minutes." >&2
             exit 1
 
-      - name: Prepare Container App identity
+      - name: Deploy Azure Function
+        uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ env.FUNCTION_APP_NAME }}
+          package: ./publish
+
+      - name: Validate functions and retire legacy worker
         run: |
-          STATE=$(az containerapp show --name "$CONTAINER_APP_NAME" \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --query properties.provisioningState --output tsv 2>/dev/null || true)
-          if [ "$STATE" = "Failed" ]; then
-            az containerapp delete --name "$CONTAINER_APP_NAME" \
-              --resource-group "$AZURE_RESOURCE_GROUP" --yes --output none
-          fi
-          if ! az containerapp show --name "$CONTAINER_APP_NAME" \
-            --resource-group "$AZURE_RESOURCE_GROUP" --output none 2>/dev/null; then
-            az containerapp create --name "$CONTAINER_APP_NAME" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --environment "$CONTAINER_APP_ENVIRONMENT" \
-              --image mcr.microsoft.com/azuredocs/containerapps-helloworld:latest \
-              --output none
-          fi
-          for attempt in $(seq 1 12); do
-            if az containerapp identity assign \
-              --name "$CONTAINER_APP_NAME" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --user-assigned "$MANAGED_IDENTITY_RESOURCE_ID" \
-              --output none; then break; fi
+          set -euo pipefail
+          for attempt in $(seq 1 18); do
+            COUNT=$(az functionapp function list -g "$AZURE_RESOURCE_GROUP" -n "$FUNCTION_APP_NAME" \
+              --query "length([?contains(name, 'PaymentNotificationFunction') || contains(name, 'AuthenticationNotificationFunction')])" -o tsv)
+            [ "$COUNT" = "2" ] && break
             sleep 10
           done
-          az containerapp show --name "$CONTAINER_APP_NAME" \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --query identity.type --output tsv | grep -q UserAssigned
-
-      - name: Deploy revision
-        uses: azure/container-apps-deploy-action@v2
-        with:
-          acrName: acrfiapgamesprodcec7f71a
-          acrUsername: ${{ secrets.ACR_USERNAME }}
-          acrPassword: ${{ secrets.ACR_PASSWORD }}
-          containerAppName: ${{ env.CONTAINER_APP_NAME }}
-          containerAppEnvironment: ${{ env.CONTAINER_APP_ENVIRONMENT }}
-          resourceGroup: ${{ env.AZURE_RESOURCE_GROUP }}
-          imageToDeploy: ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-          ingress: disabled
-          environmentVariables: ASPNETCORE_ENVIRONMENT=Production KeyVaultUri=${{ env.KEY_VAULT_URI }} AZURE_CLIENT_ID=${{ env.MANAGED_IDENTITY_CLIENT_ID }}
-
-      - name: Bound worker scaling
-        run: |
-          az containerapp update \
-            --name "$CONTAINER_APP_NAME" \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --min-replicas 1 \
-            --max-replicas 1 \
-            --output none
+          [ "$COUNT" = "2" ]
+          az containerapp delete -n "$LEGACY_CONTAINER_APP_NAME" -g "$AZURE_RESOURCE_GROUP" --yes --output none 2>/dev/null || true

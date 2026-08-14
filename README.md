@@ -1,113 +1,63 @@
 # FiapGames.Notification
 
-## Producao no Azure
-
-O Notification e um Worker Service sem ingress HTTP publico, executado no Azure Container Apps. Ele consome RabbitMQ dentro do Container Apps Environment e persiste em um banco Azure SQL exclusivo.
-
-Connection string e credenciais RabbitMQ sao carregadas do Azure Key Vault usando identidade gerenciada. As filas possuem DLX/DLQ; mensagens com falha recebem `BasicNack(requeue: false)` para evitar descarte silencioso.
-
-O workflow `.github/workflows/deploy-production.yml` publica a imagem no ACR, executa `--migrate` em um Container Apps Job efemero e atualiza o worker somente apos sucesso. O worker permanece limitado a uma replica para manter o consumidor AMQP ativo.
-
-Microserviço responsável por processar notificações da plataforma FiapGames, consumindo eventos de mensageria e registrando o histórico de comunicações enviadas. Construído com .NET 10, RabbitMQ e SQL Server LocalDB.
-
-## Objetivo
-
-Este projeto consome mensagens de eventos publicados por outros microsserviços e persiste o histórico de notificações em banco de dados.
-
-O fluxo principal é:
-- uma mensagem chega na fila RabbitMQ;
-- o worker lê o evento;
-- o evento é deserializado e processado;
-- o histórico da notificação é salvo no banco.
+Microsservico serverless de notificacoes do FIAP Cloud Games, implementado como Azure Functions .NET 10 no modelo isolated worker.
 
 ## Arquitetura
 
-A solução está organizada em três camadas principais:
+- `AuthenticationNotificationFunction`: acionada pela fila `notification-authentication` do Azure Service Bus.
+- `PaymentNotificationFunction`: acionada pela fila `notification-payment` do Azure Service Bus.
+- Azure SQL: armazena o historico de notificacoes.
+- Managed Identity: autentica a Function e os produtores no Service Bus e no Key Vault.
+- DLQ: cada fila encaminha mensagens automaticamente para `$DeadLetterQueue` depois de cinco entregas malsucedidas.
+- Scale to zero: o plano Consumption inicia execucoes somente quando chegam mensagens.
 
-- Application: modelos de eventos de integração e contratos compartilhados.
-- Domain: entidades e interfaces de domínio.
-- Infrastructure: configuração do RabbitMQ, worker, contexto do EF Core e repositório.
+O antigo `ca-notification-worker` nao faz mais parte da arquitetura. O pipeline o remove somente depois de confirmar que as duas Functions foram publicadas.
 
-## Tecnologias
+## Estrutura
 
-- .NET 10
-- RabbitMQ
-- Entity Framework Core
-- SQL Server / LocalDB
-- xUnit para testes
-
-## Pré-requisitos
-
-- .NET 10 SDK
-- RabbitMQ instalado e em execução localmente
-- SQL Server LocalDB disponível
-
-## Configuração
-
-O arquivo de configuração está em:
-- src/2-Notification.Infrastructure/appsettings.json
-
-As principais chaves são:
-- RabbitMq:HostName
-- RabbitMq:Port
-- RabbitMq:UserName
-- RabbitMq:Password
-- ConnectionStrings:DefaultConnection
-
-## Execução
-
-1. Inicie o RabbitMQ localmente.
-2. Garanta que o SQL Server LocalDB esteja disponível.
-3. Aplique as migrações:
-   ```bash
-   dotnet ef database update --project src/2-Notification.Infrastructure/2-Notification.Infrastructure.csproj
-   ```
-4. Execute a aplicação:
-   ```bash
-   dotnet run --project src/2-Notification.Infrastructure/2-Notification.Infrastructure.csproj
-   ```
-
-## Fluxo de fila
-
-O worker consome mensagens da exchange e fila:
-- exchange: notificacao.exchange
-- fila: notificacao.queue
-- routing keys aceitas:
-  - autenticacao.notificacao
-  - pagamento.notificacao
-
-O payload esperado segue o contrato de evento de integração com suporte a propriedades em camelCase.
-
-## Persistência
-
-As notificações processadas são salvas na tabela:
-- HistoricoNotificacoes
-
-O repositório responsável pela gravação está em:
-- src/2-Notification.Infrastructure/Repository/HistoricoNotificacaoRepository.cs
-
-## Testes
-
-Para executar os testes:
-
-```bash
- dotnet test FiapGame.Notification.slnx
+```text
+src/2-Notification.Infrastructure/
+  Functions/                 Service Bus triggers
+  Services/                  processamento dos eventos
+  Context/                   EF Core DbContext e migrations
+  Program.cs                 DI, Key Vault e modo --migrate
+  host.json                  configuracao do Functions runtime
+infra/
+  main.tf                    Function App, Service Bus, Storage e RBAC
+.github/workflows/
+  deploy-production.yml      infraestrutura, migration e ZIP deploy
 ```
 
-## Observações
+## Desenvolvimento local
 
-- O worker usa acknowledge manual (`ack/nack`) para controlar o ciclo de processamento.
-- Em caso de erro, a mensagem pode ser descartada da fila conforme a implementação atual.
-- Para troubleshooting, verifique os logs do worker e o estado da fila no RabbitMQ.
+1. Copie `src/2-Notification.Infrastructure/local.settings.example.json` para `local.settings.json`.
+2. Configure Azure SQL e um Service Bus de desenvolvimento.
+3. Execute:
 
-## Kubernetes (autonomia por serviço)
+```powershell
+dotnet test FiapGame.Notification.slnx
+func start --dotnet-isolated
+```
 
-Manifests próprios do serviço estão em `k8s/`:
+Para aplicar migrations sem iniciar o host:
 
-- `notification-worker-configmap.yaml`
-- `notification-worker-secret.yaml`
-- `notification-worker-service.yaml`
-- `notification-worker-deployment.yaml`
+```powershell
+dotnet run --project src/2-Notification.Infrastructure/2-Notification.Infrastructure.csproj -- --migrate
+```
 
-ConfigMap contém variáveis não sensíveis (ambiente, host e porta do RabbitMQ).
-Secret contém variáveis sensíveis (connection string e credenciais do RabbitMQ).
+## Infraestrutura
+
+O Terraform serverless pertence a este repositorio. Consulte [infra/README.md](infra/README.md). O estado remoto usado pelo pipeline fica no Storage Account `stfcgtfstatecec7f71a`, container `tfstate`.
+
+## Deploy
+
+Pushes em `master` ou `azureContainer` executam:
+
+1. Login no Azure com `AZURE_CREDENTIALS`.
+2. `terraform apply` da infraestrutura serverless.
+3. Build e testes .NET 10.
+4. Migration por Container Apps Job efemero.
+5. ZIP deploy na Azure Function.
+6. Validacao das duas Functions e remocao do container legado.
+
+Auth e Payment publicam no Service Bus usando a identidade `id-fiapgames-workloads-prod`. Nenhuma chave SAS ou connection string de mensageria e armazenada no GitHub.

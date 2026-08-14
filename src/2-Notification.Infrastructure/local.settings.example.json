@@ -1,0 +1,14 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+    "ASPNETCORE_ENVIRONMENT": "Development",
+    "NotificationServiceBus": "Endpoint=sb://localhost/;SharedAccessKeyName=local;SharedAccessKey=replace-me",
+    "PaymentNotificationQueueName": "notification-payment",
+    "AuthenticationNotificationQueueName": "notification-authentication"
+  },
+  "ConnectionStrings": {
+    "NotificationConnection": "Server=localhost,1433;Database=FIAPGamesNotification;User Id=sa;Password=replace-me;TrustServerCertificate=True"
+  }
+}
