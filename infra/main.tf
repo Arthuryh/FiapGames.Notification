@@ -119,6 +119,7 @@ resource "azurerm_linux_function_app" "notifications" {
 
   app_settings = {
     "ASPNETCORE_ENVIRONMENT"                          = "Production"
+    "AZURE_CLIENT_ID"                                 = data.azurerm_user_assigned_identity.workloads.client_id
     "KeyVaultUri"                                     = data.azurerm_key_vault.main.vault_uri
     "NotificationServiceBus__fullyQualifiedNamespace" = trimsuffix(trimprefix(azurerm_servicebus_namespace.notifications.endpoint, "https://"), ":443/")
     "NotificationServiceBus__credential"              = "managedidentity"
