@@ -38,6 +38,11 @@ ScaffoldingReadMe.txt
 
 # dotenv environment variables file
 .env
+local.settings.json
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
 
 # Others
 ~$*
