@@ -91,12 +91,16 @@ resource "azurerm_storage_container" "function_deployment" {
 }
 
 resource "azurerm_service_plan" "functions" {
-  name                = "asp-fiapgames-notification-prod"
+  name                = "asp-fiapgames-notification-flex-prod"
   resource_group_name = data.azurerm_resource_group.main.name
   location            = var.location
   os_type             = "Linux"
   sku_name            = "FC1"
   tags                = local.tags
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 resource "azurerm_function_app_flex_consumption" "notifications" {
@@ -132,7 +136,6 @@ resource "azurerm_function_app_flex_consumption" "notifications" {
     "NotificationServiceBus__clientId"                = data.azurerm_user_assigned_identity.workloads.client_id
     "PaymentNotificationQueueName"                    = azurerm_servicebus_queue.payment.name
     "AuthenticationNotificationQueueName"             = azurerm_servicebus_queue.authentication.name
-    "FUNCTIONS_WORKER_RUNTIME"                        = "dotnet-isolated"
   }
 }
 
