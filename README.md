@@ -9,7 +9,7 @@ Microsservico serverless de notificacoes do FIAP Cloud Games, implementado como 
 - Azure SQL: armazena o historico de notificacoes.
 - Managed Identity: autentica a Function e os produtores no Service Bus e no Key Vault.
 - DLQ: cada fila encaminha mensagens automaticamente para `$DeadLetterQueue` depois de cinco entregas malsucedidas.
-- Scale to zero: o plano Consumption inicia execucoes somente quando chegam mensagens.
+- Scale to zero: o plano Flex Consumption inicia execucoes somente quando chegam mensagens e suporta .NET 10.
 
 O antigo `ca-notification-worker` nao faz mais parte da arquitetura. O pipeline o remove somente depois de confirmar que as duas Functions foram publicadas.
 
