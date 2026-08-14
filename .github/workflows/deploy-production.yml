@@ -4,13 +4,19 @@ on:
   push:
     branches: [master, azureContainer]
   workflow_dispatch:
+    inputs:
+      run_migrations:
+        description: Run the ephemeral database migration job
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
   group: production-function-notification
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   AZURE_RESOURCE_GROUP: rg-fiapgames-prod
@@ -93,7 +99,24 @@ jobs:
           dotnet publish src/2-Notification.Infrastructure/2-Notification.Infrastructure.csproj \
             --configuration Release --output ./publish
 
+      - name: Detect database migration changes
+        id: migration-changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          BEFORE="${{ github.event.before }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.run_migrations }}" = "true" ]; then
+            echo "required=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            echo "required=false" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$BEFORE" "$GITHUB_SHA" -- src/2-Notification.Infrastructure/Migrations; then
+            echo "required=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "required=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Log in to ACR
+        if: steps.migration-changes.outputs.required == 'true'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.ACR_LOGIN_SERVER }}
@@ -101,6 +124,7 @@ jobs:
           password: ${{ secrets.ACR_PASSWORD }}
 
       - name: Build migration image
+        if: steps.migration-changes.outputs.required == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -109,6 +133,7 @@ jobs:
           tags: ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
 
       - name: Run database migrations
+        if: steps.migration-changes.outputs.required == 'true'
         uses: azure/cli@v2
         env:
           ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
