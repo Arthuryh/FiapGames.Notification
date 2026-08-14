@@ -24,7 +24,7 @@ env:
   AZURE_SUBSCRIPTION_ID: cec7f71a-b642-403e-bd36-dfcf0467ced4
   CONTAINER_APP_ENVIRONMENT: cae-fiapgames-prod
   LEGACY_CONTAINER_APP_NAME: ca-notification-worker
-  FUNCTION_APP_NAME: func-fiapgames-notification-cec7f71a
+  FUNCTION_APP_NAME: func-fcg-notify-cec7f71a
   ACR_LOGIN_SERVER: acrfiapgamesprodcec7f71a.azurecr.io
   IMAGE_NAME: notification-migrations
   KEY_VAULT_URI: https://kv-fiapgames-cec7f71a.vault.azure.net/

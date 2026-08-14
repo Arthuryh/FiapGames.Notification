@@ -84,38 +84,44 @@ resource "azurerm_storage_account" "functions" {
   tags                     = local.tags
 }
 
+resource "azurerm_storage_container" "function_deployment" {
+  name                  = "function-deployment"
+  storage_account_id    = azurerm_storage_account.functions.id
+  container_access_type = "private"
+}
+
 resource "azurerm_service_plan" "functions" {
   name                = "asp-fiapgames-notification-prod"
   resource_group_name = data.azurerm_resource_group.main.name
   location            = var.location
   os_type             = "Linux"
-  sku_name            = "Y1"
+  sku_name            = "FC1"
   tags                = local.tags
 }
 
-resource "azurerm_linux_function_app" "notifications" {
-  name                        = "func-fiapgames-notification-${local.suffix}"
-  resource_group_name         = data.azurerm_resource_group.main.name
-  location                    = var.location
-  service_plan_id             = azurerm_service_plan.functions.id
-  storage_account_name        = azurerm_storage_account.functions.name
-  storage_account_access_key  = azurerm_storage_account.functions.primary_access_key
-  https_only                  = true
-  functions_extension_version = "~4"
-  tags                        = local.tags
+resource "azurerm_function_app_flex_consumption" "notifications" {
+  name                = "func-fcg-notify-${local.suffix}"
+  resource_group_name = data.azurerm_resource_group.main.name
+  location            = var.location
+  service_plan_id     = azurerm_service_plan.functions.id
+
+  storage_container_type      = "blobContainer"
+  storage_container_endpoint  = "${azurerm_storage_account.functions.primary_blob_endpoint}${azurerm_storage_container.function_deployment.name}"
+  storage_authentication_type = "StorageAccountConnectionString"
+  storage_access_key          = azurerm_storage_account.functions.primary_access_key
+
+  runtime_name           = "dotnet-isolated"
+  runtime_version        = "10.0"
+  maximum_instance_count = 10
+  instance_memory_in_mb  = 2048
+  tags                   = local.tags
 
   identity {
     type         = "UserAssigned"
     identity_ids = [data.azurerm_user_assigned_identity.workloads.id]
   }
 
-  site_config {
-    application_stack {
-      dotnet_version              = "10.0"
-      use_dotnet_isolated_runtime = true
-    }
-    minimum_tls_version = "1.2"
-  }
+  site_config {}
 
   app_settings = {
     "ASPNETCORE_ENVIRONMENT"                          = "Production"
@@ -127,7 +133,6 @@ resource "azurerm_linux_function_app" "notifications" {
     "PaymentNotificationQueueName"                    = azurerm_servicebus_queue.payment.name
     "AuthenticationNotificationQueueName"             = azurerm_servicebus_queue.authentication.name
     "FUNCTIONS_WORKER_RUNTIME"                        = "dotnet-isolated"
-    "WEBSITE_RUN_FROM_PACKAGE"                        = "1"
   }
 }
 
@@ -143,5 +148,5 @@ resource "azurerm_role_assignment" "workload_sender" {
   principal_id         = data.azurerm_user_assigned_identity.workloads.principal_id
 }
 
-output "function_app_name" { value = azurerm_linux_function_app.notifications.name }
+output "function_app_name" { value = azurerm_function_app_flex_consumption.notifications.name }
 output "service_bus_fully_qualified_namespace" { value = trimsuffix(trimprefix(azurerm_servicebus_namespace.notifications.endpoint, "https://"), ":443/") }
