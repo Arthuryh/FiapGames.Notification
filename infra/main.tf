@@ -47,6 +47,21 @@ data "azurerm_user_assigned_identity" "workloads" {
   resource_group_name = data.azurerm_resource_group.main.name
 }
 
+data "azurerm_log_analytics_workspace" "shared" {
+  name                = "log-fiapgames-prod-${local.suffix}"
+  resource_group_name = data.azurerm_resource_group.main.name
+}
+
+resource "azurerm_application_insights" "notifications" {
+  name                = "appi-fcg-notify-${local.suffix}"
+  location            = var.location
+  resource_group_name = data.azurerm_resource_group.main.name
+  workspace_id        = data.azurerm_log_analytics_workspace.shared.id
+  application_type    = "web"
+  retention_in_days   = 30
+  tags                = local.tags
+}
+
 resource "azurerm_servicebus_namespace" "notifications" {
   name                = "sb-fiapgames-notification-${local.suffix}"
   location            = var.location
@@ -136,6 +151,8 @@ resource "azurerm_function_app_flex_consumption" "notifications" {
     "NotificationServiceBus__clientId"                = data.azurerm_user_assigned_identity.workloads.client_id
     "PaymentNotificationQueueName"                    = azurerm_servicebus_queue.payment.name
     "AuthenticationNotificationQueueName"             = azurerm_servicebus_queue.authentication.name
+    "APPLICATIONINSIGHTS_CONNECTION_STRING"            = azurerm_application_insights.notifications.connection_string
+    "APPLICATIONINSIGHTS_SAMPLING_PERCENTAGE"           = "100"
   }
 }
 

@@ -12,7 +12,13 @@ public sealed class PaymentNotificationFunction(NotificationProcessor processor,
         FunctionContext context,
         CancellationToken cancellationToken)
     {
-        logger.LogInformation("Processing payment notification. InvocationId: {InvocationId}", context.InvocationId);
+        using var scope = logger.BeginScope(new Dictionary<string, object>
+        {
+            ["FunctionName"] = nameof(PaymentNotificationFunction),
+            ["InvocationId"] = context.InvocationId
+        });
+        logger.LogInformation("Processing payment notification");
         await processor.ProcessPaymentAsync(payload, cancellationToken);
+        logger.LogInformation("Payment notification processed successfully");
     }
 }
