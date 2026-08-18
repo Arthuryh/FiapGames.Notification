@@ -10,5 +10,13 @@
   },
   "ConnectionStrings": {
     "NotificationConnection": "Server=localhost,1433;Database=FIAPGamesNotification;User Id=sa;Password=replace-me;TrustServerCertificate=True"
+  },
+  "MongoDb": {
+    "ConnectionString": "mongodb://localhost:27017",
+    "DatabaseName": "fiapgames_notifications",
+    "CollectionName": "HistoricoNotificacoes"
+  },
+  "Redis": {
+    "ConnectionString": "localhost:6379"
   }
 }

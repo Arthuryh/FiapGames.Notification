@@ -25,15 +25,25 @@ if (!builder.Environment.IsDevelopment())
     builder.Configuration.AddAzureKeyVault(keyVaultUri, new DefaultAzureCredential());
 }
 
+var mongoConnectionString = builder.Configuration["MongoDb:ConnectionString"];
 var connectionString = builder.Configuration.GetConnectionString("NotificationConnection");
-if (string.IsNullOrWhiteSpace(connectionString))
+
+if (!string.IsNullOrWhiteSpace(mongoConnectionString))
 {
-    throw new InvalidOperationException("Connection string NotificationConnection is required.");
+    builder.Services.AddSingleton<IHistoricoNotificacaoRepository, MongoHistoricoNotificacaoRepository>();
+}
+else
+{
+    if (string.IsNullOrWhiteSpace(connectionString))
+    {
+        throw new InvalidOperationException("Connection string NotificationConnection is required.");
+    }
+
+    builder.Services.AddDbContext<NotificacaoDbContext>(options =>
+        options.UseSqlServer(connectionString, sql => sql.EnableRetryOnFailure(20, TimeSpan.FromSeconds(10), null)));
+    builder.Services.AddScoped<IHistoricoNotificacaoRepository, HistoricoNotificacaoRepository>();
 }
 
-builder.Services.AddDbContext<NotificacaoDbContext>(options =>
-    options.UseSqlServer(connectionString, sql => sql.EnableRetryOnFailure(20, TimeSpan.FromSeconds(10), null)));
-builder.Services.AddScoped<IHistoricoNotificacaoRepository, HistoricoNotificacaoRepository>();
 builder.Services.AddScoped<NotificationProcessor>();
 
 var host = builder.Build();
