@@ -12,7 +12,13 @@ public sealed class AuthenticationNotificationFunction(NotificationProcessor pro
         FunctionContext context,
         CancellationToken cancellationToken)
     {
-        logger.LogInformation("Processing authentication notification. InvocationId: {InvocationId}", context.InvocationId);
+        using var scope = logger.BeginScope(new Dictionary<string, object>
+        {
+            ["FunctionName"] = nameof(AuthenticationNotificationFunction),
+            ["InvocationId"] = context.InvocationId
+        });
+        logger.LogInformation("Processing authentication notification");
         await processor.ProcessAuthenticationAsync(payload, cancellationToken);
+        logger.LogInformation("Authentication notification processed successfully");
     }
 }
