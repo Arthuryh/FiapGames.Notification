@@ -151,8 +151,8 @@ resource "azurerm_function_app_flex_consumption" "notifications" {
     "NotificationServiceBus__clientId"                = data.azurerm_user_assigned_identity.workloads.client_id
     "PaymentNotificationQueueName"                    = azurerm_servicebus_queue.payment.name
     "AuthenticationNotificationQueueName"             = azurerm_servicebus_queue.authentication.name
-    "APPLICATIONINSIGHTS_CONNECTION_STRING"            = azurerm_application_insights.notifications.connection_string
-    "APPLICATIONINSIGHTS_SAMPLING_PERCENTAGE"           = "100"
+    "APPLICATIONINSIGHTS_CONNECTION_STRING"           = azurerm_application_insights.notifications.connection_string
+    "APPLICATIONINSIGHTS_SAMPLING_PERCENTAGE"         = "100"
   }
 }
 
