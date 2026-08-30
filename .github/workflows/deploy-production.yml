@@ -54,12 +54,15 @@ jobs:
           echo "ARM_CLIENT_ID=$(jq -r .clientId <<<"$AZURE_CREDENTIALS_JSON")" >> "$GITHUB_ENV"
           echo "ARM_CLIENT_SECRET=$(jq -r .clientSecret <<<"$AZURE_CREDENTIALS_JSON")" >> "$GITHUB_ENV"
           echo "ARM_TENANT_ID=$(jq -r .tenantId <<<"$AZURE_CREDENTIALS_JSON")" >> "$GITHUB_ENV"
-          echo "ARM_SUBSCRIPTION_ID=$(jq -r .subscriptionId <<<"$AZURE_CREDENTIALS_JSON")" >> "$GITHUB_ENV"
+          echo "ARM_SUBSCRIPTION_ID=$AZURE_SUBSCRIPTION_ID" >> "$GITHUB_ENV"
 
       - name: Log in to Azure
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Select target subscription
+        run: az account set --subscription "$AZURE_SUBSCRIPTION_ID"
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
@@ -117,11 +120,7 @@ jobs:
 
       - name: Log in to ACR
         if: steps.migration-changes.outputs.required == 'true'
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.ACR_LOGIN_SERVER }}
-          username: ${{ secrets.ACR_USERNAME }}
-          password: ${{ secrets.ACR_PASSWORD }}
+        run: az acr login --name "${ACR_LOGIN_SERVER%%.*}"
 
       - name: Build migration image
         if: steps.migration-changes.outputs.required == 'true'
@@ -135,12 +134,12 @@ jobs:
       - name: Run database migrations
         if: steps.migration-changes.outputs.required == 'true'
         uses: azure/cli@v2
-        env:
-          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
-          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
         with:
           inlineScript: |
             set -euo pipefail
+            ACR_NAME="${ACR_LOGIN_SERVER%%.*}"
+            ACR_USERNAME=$(az acr credential show --name "$ACR_NAME" --query username -o tsv)
+            ACR_PASSWORD=$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv)
             JOB_NAME="notification-mig-${GITHUB_RUN_ID:0:12}-${GITHUB_RUN_ATTEMPT}"
             trap 'az containerapp job delete -n "$JOB_NAME" -g "$AZURE_RESOURCE_GROUP" --yes --output none 2>/dev/null || true' EXIT
             az containerapp job create -n "$JOB_NAME" -g "$AZURE_RESOURCE_GROUP" \
