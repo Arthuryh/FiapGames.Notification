@@ -21,15 +21,15 @@ concurrency:
 env:
   AZURE_RESOURCE_GROUP: rg-fiapgames-prod
   AZURE_LOCATION: brazilsouth
-  AZURE_SUBSCRIPTION_ID: cec7f71a-b642-403e-bd36-dfcf0467ced4
+  AZURE_SUBSCRIPTION_ID: 64f434dd-5cb0-4c01-971d-7e0e6ba4db9b
   CONTAINER_APP_ENVIRONMENT: cae-fiapgames-prod
   LEGACY_CONTAINER_APP_NAME: ca-notification-worker
-  FUNCTION_APP_NAME: func-fcg-notify-cec7f71a
-  ACR_LOGIN_SERVER: acrfiapgamesprodcec7f71a.azurecr.io
+  FUNCTION_APP_NAME: func-fcg-notify-64f434dd
+  ACR_LOGIN_SERVER: acrfiapgamesprod64f434dd.azurecr.io
   IMAGE_NAME: notification-migrations
-  KEY_VAULT_URI: https://kv-fiapgames-cec7f71a.vault.azure.net/
-  MANAGED_IDENTITY_RESOURCE_ID: /subscriptions/cec7f71a-b642-403e-bd36-dfcf0467ced4/resourceGroups/rg-fiapgames-prod/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-fiapgames-workloads-prod
-  MANAGED_IDENTITY_CLIENT_ID: e302d8a9-bdd4-4f92-b9a8-17e963a7a17c
+  KEY_VAULT_URI: https://kv-fiapgames-64f434dd.vault.azure.net/
+  MANAGED_IDENTITY_RESOURCE_ID: /subscriptions/64f434dd-5cb0-4c01-971d-7e0e6ba4db9b/resourceGroups/rg-fiapgames-prod/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-fiapgames-workloads-prod
+  MANAGED_IDENTITY_CLIENT_ID: dfff11eb-a350-4ccb-a466-dee3265a9bf1
 
 jobs:
   deploy:
@@ -67,7 +67,7 @@ jobs:
       - name: Bootstrap Terraform state
         run: |
           set -euo pipefail
-          STATE_ACCOUNT="stfcgtfstatecec7f71a"
+          STATE_ACCOUNT="stfcgtfstate64f434dd"
           az storage account create --name "$STATE_ACCOUNT" --resource-group "$AZURE_RESOURCE_GROUP" \
             --location "$AZURE_LOCATION" --sku Standard_LRS --min-tls-version TLS1_2 --output none
           KEY=$(az storage account keys list --account-name "$STATE_ACCOUNT" \
@@ -80,7 +80,7 @@ jobs:
         run: |
           set -euo pipefail
           terraform init -input=false \
-            -backend-config="storage_account_name=stfcgtfstatecec7f71a" \
+            -backend-config="storage_account_name=stfcgtfstate64f434dd" \
             -backend-config="container_name=tfstate" \
             -backend-config="key=notification-serverless.tfstate" \
             -backend-config="resource_group_name=$AZURE_RESOURCE_GROUP"

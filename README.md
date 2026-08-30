@@ -47,7 +47,7 @@ dotnet run --project src/2-Notification.Infrastructure/2-Notification.Infrastruc
 
 ## Infraestrutura
 
-O Terraform serverless pertence a este repositorio. Consulte [infra/README.md](infra/README.md). O estado remoto usado pelo pipeline fica no Storage Account `stfcgtfstatecec7f71a`, container `tfstate`.
+O Terraform serverless pertence a este repositorio. Consulte [infra/README.md](infra/README.md). O estado remoto usado pelo pipeline fica no Storage Account `stfcgtfstate64f434dd`, container `tfstate`.
 
 ## Deploy
 
