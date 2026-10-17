@@ -6,7 +6,7 @@ Microsservico serverless de notificacoes do FIAP Cloud Games, implementado como 
 
 - `AuthenticationNotificationFunction`: acionada pela fila `notification-authentication` do Azure Service Bus.
 - `PaymentNotificationFunction`: acionada pela fila `notification-payment` do Azure Service Bus.
-- Azure SQL: armazena o historico de notificacoes.
+- Cosmos DB com API Mongo: pode armazenar o historico de notificacoes quando `MongoDb:ConnectionString` estiver configurada; Azure SQL continua como fallback local.
 - Managed Identity: autentica a Function e os produtores no Service Bus e no Key Vault.
 - DLQ: cada fila encaminha mensagens automaticamente para `$DeadLetterQueue` depois de cinco entregas malsucedidas.
 - Scale to zero: o plano Flex Consumption inicia execucoes somente quando chegam mensagens e suporta .NET 10.
