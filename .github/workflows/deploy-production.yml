@@ -83,7 +83,7 @@ jobs:
         run: |
           set -euo pipefail
           terraform init -input=false \
-            -backend-config="storage_account_name=stfcgtfstate64f434dd" \
+            -backend-config="storage_account_name=$STATE_ACCOUNT" \
             -backend-config="container_name=tfstate" \
             -backend-config="key=notification-serverless.tfstate" \
             -backend-config="resource_group_name=$AZURE_RESOURCE_GROUP"

@@ -50,6 +50,12 @@ var host = builder.Build();
 
 if (args.Contains("--migrate", StringComparer.OrdinalIgnoreCase))
 {
+    if (!string.IsNullOrWhiteSpace(mongoConnectionString))
+    {
+        Console.WriteLine("MongoDB persistence does not require EF Core migrations.");
+        return;
+    }
+
     await using var scope = host.Services.CreateAsyncScope();
     var context = scope.ServiceProvider.GetRequiredService<NotificacaoDbContext>();
     await context.Database.MigrateAsync();
